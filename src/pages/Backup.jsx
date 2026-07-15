@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { exportData, importData } from '../data/storage'
 
 function isValidBackup(data) {
@@ -10,7 +11,6 @@ function isValidBackup(data) {
   const transactionsValid = data.transactions.every(
     (t) =>
       t &&
-      typeof t.id === 'string' &&
       typeof t.amount === 'number' &&
       typeof t.category === 'string' &&
       typeof t.date === 'string',
@@ -19,6 +19,7 @@ function isValidBackup(data) {
 }
 
 export default function Backup() {
+  const { user } = useAuth()
   const fileInputRef = useRef(null)
   const [pendingImport, setPendingImport] = useState(null)
   const [pendingFileName, setPendingFileName] = useState('')
@@ -26,18 +27,27 @@ export default function Backup() {
   const [success, setSuccess] = useState('')
   const [importing, setImporting] = useState(false)
 
-  function handleExport() {
-    const data = exportData()
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const date = new Date().toISOString().slice(0, 10)
-    link.href = url
-    link.download = `expense-tracker-backup-${date}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-    setSuccess('Backup downloaded.')
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
+    setExporting(true)
     setError('')
+    try {
+      const data = await exportData(user.uid)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const date = new Date().toISOString().slice(0, 10)
+      link.href = url
+      link.download = `expense-tracker-backup-${date}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      setSuccess('Backup downloaded.')
+    } catch {
+      setError('Could not export your data. Please try again.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   function handleImportClick() {
@@ -72,11 +82,21 @@ export default function Backup() {
     }
   }
 
-  function confirmImport() {
-    importData(pendingImport)
-    setPendingImport(null)
-    setPendingFileName('')
-    setSuccess('Data restored from backup.')
+  const [applyingImport, setApplyingImport] = useState(false)
+
+  async function confirmImport() {
+    setApplyingImport(true)
+    setError('')
+    try {
+      await importData(user.uid, pendingImport)
+      setSuccess('Data restored from backup.')
+    } catch {
+      setError('Could not import that backup. Please try again.')
+    } finally {
+      setApplyingImport(false)
+      setPendingImport(null)
+      setPendingFileName('')
+    }
   }
 
   function cancelImport() {
@@ -88,14 +108,16 @@ export default function Backup() {
     <div className="page">
       <h1>Backup</h1>
       <p className="backup-note">
-        All your data lives only in this browser's storage. Export a backup regularly so
-        clearing your browser data doesn't lose it.
+        Your data is stored in your account, but it's still worth keeping a local backup you
+        control — in case you ever need to move it or restore an earlier state.
       </p>
 
       <div className="backup-section">
         <h2>Export Data</h2>
         <p>Download all categories and transactions as a single JSON file.</p>
-        <button onClick={handleExport}>Export Data</button>
+        <button onClick={handleExport} disabled={exporting} aria-busy={exporting}>
+          {exporting ? 'Exporting…' : 'Export Data'}
+        </button>
       </div>
 
       <div className="backup-section">
@@ -119,10 +141,15 @@ export default function Backup() {
               categories and {pendingImport.transactions.length} transactions currently stored.
             </span>
             <div className="category-confirm-actions">
-              <button className="danger" onClick={confirmImport}>
-                Overwrite and Import
+              <button
+                className="danger"
+                onClick={confirmImport}
+                disabled={applyingImport}
+                aria-busy={applyingImport}
+              >
+                {applyingImport ? 'Importing…' : 'Overwrite and Import'}
               </button>
-              <button className="secondary" onClick={cancelImport}>
+              <button className="secondary" onClick={cancelImport} disabled={applyingImport}>
                 Cancel
               </button>
             </div>

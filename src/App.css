@@ -23,8 +23,60 @@
   background: var(--accent-bg);
 }
 
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+.user-name {
+  font-size: 13px;
+  color: var(--text);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navbar-user button {
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
 .content {
   padding: 0 20px 40px;
+}
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100svh;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.login-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 100svh;
+  padding: 20px;
+  text-align: center;
+}
+
+.login-page p {
+  max-width: 360px;
+  font-size: 14px;
 }
 
 .backup-note {
@@ -502,6 +554,13 @@ button:disabled {
   .navbar a {
     padding: 6px 10px;
     font-size: 13px;
+  }
+
+  .navbar-user {
+    margin-left: 0;
+    width: 100%;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
   }
 
   .filters {

@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useAuth } from '../context/AuthContext'
 import { getCategories, getTransactions, deleteTransaction } from '../data/storage'
 import { formatCurrency, formatCurrencyCompact } from '../utils/currency'
 
@@ -46,8 +47,10 @@ function monthLabel(date) {
 }
 
 export default function Dashboard() {
-  const [transactions, setTransactions] = useState(getTransactions())
-  const categories = getCategories()
+  const { user } = useAuth()
+  const [transactions, setTransactions] = useState([])
+  const [categories, setCategories] = useState([])
+  const [loading, setLoading] = useState(true)
 
   const [selectedCategories, setSelectedCategories] = useState([])
   const [dateFrom, setDateFrom] = useState('')
@@ -64,6 +67,22 @@ export default function Dashboard() {
   const borderColor = useCssVar('--border', '#e5e4e7')
   const bgColor = useCssVar('--bg', '#fff')
 
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    Promise.all([getCategories(user.uid), getTransactions(user.uid)]).then(
+      ([loadedCategories, loadedTransactions]) => {
+        if (cancelled) return
+        setCategories(loadedCategories)
+        setTransactions(loadedTransactions)
+        setLoading(false)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [user.uid])
+
   const categoryOptions = useMemo(() => {
     const names = categories.map((c) => c.name)
     transactions.forEach((t) => {
@@ -76,9 +95,9 @@ export default function Dashboard() {
     return categories.find((c) => c.name === categoryName)?.color ?? FALLBACK_COLOR
   }
 
-  function handleDelete(id) {
-    deleteTransaction(id)
-    setTransactions(getTransactions())
+  async function handleDelete(id) {
+    await deleteTransaction(user.uid, id)
+    setTransactions(await getTransactions(user.uid))
   }
 
   function toggleCategory(name) {
@@ -193,6 +212,15 @@ export default function Dashboard() {
     borderRadius: 6,
     color: textColor,
     fontSize: 13,
+  }
+
+  if (loading) {
+    return (
+      <div className="page">
+        <h1>Dashboard</h1>
+        <p>Loading…</p>
+      </div>
+    )
   }
 
   return (

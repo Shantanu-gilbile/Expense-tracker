@@ -1,19 +1,40 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { getCategories, getTransactions, addTransaction, deleteTransaction } from '../data/storage'
 import { formatCurrency } from '../utils/currency'
 
 const today = () => new Date().toISOString().slice(0, 10)
 
 export default function AddEntry() {
-  const categories = getCategories()
+  const { user } = useAuth()
+  const [categories, setCategories] = useState([])
+  const [transactions, setTransactions] = useState([])
+  const [loading, setLoading] = useState(true)
+
   const [amount, setAmount] = useState('')
-  const [category, setCategory] = useState(categories[0]?.name ?? '')
+  const [category, setCategory] = useState('')
   const [date, setDate] = useState(today())
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
   const [confirmation, setConfirmation] = useState('')
-  const [transactions, setTransactions] = useState(getTransactions())
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    Promise.all([getCategories(user.uid), getTransactions(user.uid)]).then(
+      ([loadedCategories, loadedTransactions]) => {
+        if (cancelled) return
+        setCategories(loadedCategories)
+        setTransactions(loadedTransactions)
+        setCategory((current) => current || (loadedCategories[0]?.name ?? ''))
+        setLoading(false)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [user.uid])
 
   const todaysEntries = transactions.filter((t) => t.date === today())
 
@@ -21,7 +42,7 @@ export default function AddEntry() {
     return categories.find((c) => c.name === categoryName)?.color ?? '#9ca3af'
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     setConfirmation('')
 
@@ -39,8 +60,13 @@ export default function AddEntry() {
       return
     }
 
-    addTransaction({ amount: parsedAmount, category, date, description: description.trim() })
-    setTransactions(getTransactions())
+    await addTransaction(user.uid, {
+      amount: parsedAmount,
+      category,
+      date,
+      description: description.trim(),
+    })
+    setTransactions(await getTransactions(user.uid))
     setAmount('')
     setDescription('')
     setDate(today())
@@ -49,9 +75,18 @@ export default function AddEntry() {
     setTimeout(() => setConfirmation(''), 2000)
   }
 
-  function handleDelete(id) {
-    deleteTransaction(id)
-    setTransactions(getTransactions())
+  async function handleDelete(id) {
+    await deleteTransaction(user.uid, id)
+    setTransactions(await getTransactions(user.uid))
+  }
+
+  if (loading) {
+    return (
+      <div className="page">
+        <h1>Add Entry</h1>
+        <p>Loading…</p>
+      </div>
+    )
   }
 
   if (categories.length === 0) {

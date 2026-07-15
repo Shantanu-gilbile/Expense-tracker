@@ -1,5 +1,17 @@
-const CATEGORIES_KEY = 'expense-tracker:categories'
-const TRANSACTIONS_KEY = 'expense-tracker:transactions'
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore'
+import { db } from '../firebase'
 
 export const UNCATEGORIZED = 'Uncategorized'
 
@@ -11,93 +23,124 @@ const DEFAULT_CATEGORIES = [
   { name: 'Entertainment', color: '#8b5cf6' },
 ]
 
-function readJSON(key, fallback) {
-  const raw = localStorage.getItem(key)
-  if (!raw) return fallback
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return fallback
+const CHUNK_SIZE = 450
+
+function categoriesRef(uid) {
+  return collection(db, 'users', uid, 'categories')
+}
+
+function transactionsRef(uid) {
+  return collection(db, 'users', uid, 'transactions')
+}
+
+async function commitInChunks(applyOp, items) {
+  for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+    const batch = writeBatch(db)
+    items.slice(i, i + CHUNK_SIZE).forEach((item) => applyOp(batch, item))
+    await batch.commit()
   }
 }
 
-function writeJSON(key, value) {
-  localStorage.setItem(key, JSON.stringify(value))
+export async function getCategories(uid) {
+  const snapshot = await getDocs(categoriesRef(uid))
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
-export function getCategories() {
-  return readJSON(CATEGORIES_KEY, [])
+export async function seedDefaultCategoriesIfEmpty(uid) {
+  const existing = await getDocs(categoriesRef(uid))
+  if (!existing.empty) return
+
+  const batch = writeBatch(db)
+  DEFAULT_CATEGORIES.forEach((category) => {
+    batch.set(doc(categoriesRef(uid)), category)
+  })
+  await batch.commit()
 }
 
-export function setCategories(categories) {
-  writeJSON(CATEGORIES_KEY, categories)
+export async function getTransactions(uid) {
+  const q = query(transactionsRef(uid), orderBy('createdAt', 'desc'))
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map((d) => {
+    const { createdAt, ...data } = d.data()
+    return { id: d.id, ...data }
+  })
 }
 
-export function seedDefaultCategoriesIfEmpty() {
-  const existing = getCategories()
-  if (existing.length === 0) {
-    setCategories(DEFAULT_CATEGORIES)
-  }
+export async function addTransaction(uid, transaction) {
+  const docRef = await addDoc(transactionsRef(uid), {
+    ...transaction,
+    createdAt: serverTimestamp(),
+  })
+  return { id: docRef.id, ...transaction }
 }
 
-export function getTransactions() {
-  return readJSON(TRANSACTIONS_KEY, [])
+export async function deleteTransaction(uid, transactionId) {
+  await deleteDoc(doc(transactionsRef(uid), transactionId))
 }
 
-export function setTransactions(transactions) {
-  writeJSON(TRANSACTIONS_KEY, transactions)
+export async function addCategory(uid, name, color) {
+  const existing = await getDocs(query(categoriesRef(uid), where('name', '==', name)))
+  if (!existing.empty) return getCategories(uid)
+
+  await addDoc(categoriesRef(uid), { name, color })
+  return getCategories(uid)
 }
 
-export function addTransaction(transaction) {
-  const transactions = getTransactions()
-  const withId = { id: crypto.randomUUID(), ...transaction }
-  setTransactions([withId, ...transactions])
-  return withId
-}
-
-export function deleteTransaction(id) {
-  setTransactions(getTransactions().filter((t) => t.id !== id))
-}
-
-export function addCategory(name, color) {
-  const categories = getCategories()
-  if (categories.some((c) => c.name === name)) return categories
-  const updated = [...categories, { name, color }]
-  setCategories(updated)
-  return updated
-}
-
-export function updateCategory(oldName, { name, color }) {
-  const categories = getCategories().map((c) => (c.name === oldName ? { name, color } : c))
-  setCategories(categories)
+export async function updateCategory(uid, categoryId, oldName, { name, color }) {
+  await updateDoc(doc(categoriesRef(uid), categoryId), { name, color })
 
   if (name !== oldName) {
-    const transactions = getTransactions().map((t) =>
-      t.category === oldName ? { ...t, category: name } : t,
+    const affected = await getDocs(query(transactionsRef(uid), where('category', '==', oldName)))
+    await commitInChunks(
+      (batch, docSnap) => batch.update(docSnap.ref, { category: name }),
+      affected.docs,
     )
-    setTransactions(transactions)
   }
 
-  return categories
+  return getCategories(uid)
 }
 
-export function deleteCategory(name) {
-  setCategories(getCategories().filter((c) => c.name !== name))
+export async function deleteCategory(uid, categoryId, categoryName) {
+  await deleteDoc(doc(categoriesRef(uid), categoryId))
 
-  const transactions = getTransactions().map((t) =>
-    t.category === name ? { ...t, category: UNCATEGORIZED } : t,
+  const affected = await getDocs(
+    query(transactionsRef(uid), where('category', '==', categoryName)),
   )
-  setTransactions(transactions)
+  await commitInChunks(
+    (batch, docSnap) => batch.update(docSnap.ref, { category: UNCATEGORIZED }),
+    affected.docs,
+  )
 }
 
-export function exportData() {
+export async function exportData(uid) {
+  const [categories, transactions] = await Promise.all([getCategories(uid), getTransactions(uid)])
   return {
-    categories: getCategories(),
-    transactions: getTransactions(),
+    categories: categories.map(({ name, color }) => ({ name, color })),
+    transactions: transactions.map(({ amount, category, date, description }) => ({
+      amount,
+      category,
+      date,
+      description,
+    })),
   }
 }
 
-export function importData({ categories, transactions }) {
-  setCategories(categories)
-  setTransactions(transactions)
+export async function importData(uid, { categories, transactions }) {
+  const [existingCategories, existingTransactions] = await Promise.all([
+    getDocs(categoriesRef(uid)),
+    getDocs(transactionsRef(uid)),
+  ])
+
+  await commitInChunks((batch, docSnap) => batch.delete(docSnap.ref), existingCategories.docs)
+  await commitInChunks((batch, docSnap) => batch.delete(docSnap.ref), existingTransactions.docs)
+
+  await commitInChunks(
+    (batch, category) => batch.set(doc(categoriesRef(uid)), category),
+    categories,
+  )
+  await commitInChunks(
+    (batch, transaction) =>
+      batch.set(doc(transactionsRef(uid)), { ...transaction, createdAt: serverTimestamp() }),
+    transactions,
+  )
 }

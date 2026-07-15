@@ -1,21 +1,38 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { getCategories, addCategory, updateCategory, deleteCategory } from '../data/storage'
 
 const DEFAULT_COLOR = '#aa3bff'
 
 export default function Categories() {
-  const [categories, setCategoriesState] = useState(getCategories())
+  const { user } = useAuth()
+  const [categories, setCategories] = useState([])
+  const [loading, setLoading] = useState(true)
+
   const [name, setName] = useState('')
   const [color, setColor] = useState(DEFAULT_COLOR)
   const [error, setError] = useState('')
 
-  const [editingName, setEditingName] = useState(null)
+  const [editingId, setEditingId] = useState(null)
   const [editName, setEditName] = useState('')
   const [editColor, setEditColor] = useState(DEFAULT_COLOR)
 
   const [pendingDelete, setPendingDelete] = useState(null)
 
-  function handleAdd(e) {
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    getCategories(user.uid).then((loaded) => {
+      if (cancelled) return
+      setCategories(loaded)
+      setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [user.uid])
+
+  async function handleAdd(e) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) {
@@ -26,14 +43,14 @@ export default function Categories() {
       setError('A category with that name already exists.')
       return
     }
-    setCategoriesState(addCategory(trimmed, color))
+    setCategories(await addCategory(user.uid, trimmed, color))
     setName('')
     setColor(DEFAULT_COLOR)
     setError('')
   }
 
   function startEdit(category) {
-    setEditingName(category.name)
+    setEditingId(category.id)
     setEditName(category.name)
     setEditColor(category.color)
     setPendingDelete(null)
@@ -41,33 +58,47 @@ export default function Categories() {
   }
 
   function cancelEdit() {
-    setEditingName(null)
+    setEditingId(null)
   }
 
-  function saveEdit(oldName) {
+  async function saveEdit(category) {
     const trimmed = editName.trim()
     if (!trimmed) {
       setError('Category name is required.')
       return
     }
-    if (trimmed !== oldName && categories.some((c) => c.name === trimmed)) {
+    if (trimmed !== category.name && categories.some((c) => c.name === trimmed)) {
       setError('A category with that name already exists.')
       return
     }
-    setCategoriesState(updateCategory(oldName, { name: trimmed, color: editColor }))
-    setEditingName(null)
+    setCategories(
+      await updateCategory(user.uid, category.id, category.name, {
+        name: trimmed,
+        color: editColor,
+      }),
+    )
+    setEditingId(null)
     setError('')
   }
 
-  function confirmDelete(categoryName) {
-    setPendingDelete(categoryName)
-    setEditingName(null)
+  function confirmDelete(category) {
+    setPendingDelete(category)
+    setEditingId(null)
   }
 
-  function handleDelete(categoryName) {
-    deleteCategory(categoryName)
-    setCategoriesState(getCategories())
+  async function handleDelete(category) {
+    await deleteCategory(user.uid, category.id, category.name)
+    setCategories(await getCategories(user.uid))
     setPendingDelete(null)
+  }
+
+  if (loading) {
+    return (
+      <div className="page">
+        <h1>Categories</h1>
+        <p>Loading…</p>
+      </div>
+    )
   }
 
   return (
@@ -93,8 +124,8 @@ export default function Categories() {
 
       <ul className="category-list">
         {categories.map((c) => (
-          <li key={c.name}>
-            {editingName === c.name ? (
+          <li key={c.id}>
+            {editingId === c.id ? (
               <div className="category-edit-row">
                 <input
                   type="text"
@@ -107,18 +138,18 @@ export default function Categories() {
                   onChange={(e) => setEditColor(e.target.value)}
                   aria-label={`Color for ${c.name}`}
                 />
-                <button onClick={() => saveEdit(c.name)}>Save</button>
+                <button onClick={() => saveEdit(c)}>Save</button>
                 <button className="secondary" onClick={cancelEdit}>
                   Cancel
                 </button>
               </div>
-            ) : pendingDelete === c.name ? (
+            ) : pendingDelete?.id === c.id ? (
               <div className="category-confirm-row">
                 <span>
                   Delete "{c.name}"? Its entries will move to Uncategorized.
                 </span>
                 <div className="category-confirm-actions">
-                  <button className="danger" onClick={() => handleDelete(c.name)}>
+                  <button className="danger" onClick={() => handleDelete(c)}>
                     Confirm
                   </button>
                   <button className="secondary" onClick={() => setPendingDelete(null)}>
@@ -136,7 +167,7 @@ export default function Categories() {
                   <button className="secondary" onClick={() => startEdit(c)}>
                     Edit
                   </button>
-                  <button className="danger" onClick={() => confirmDelete(c.name)}>
+                  <button className="danger" onClick={() => confirmDelete(c)}>
                     Delete
                   </button>
                 </div>
