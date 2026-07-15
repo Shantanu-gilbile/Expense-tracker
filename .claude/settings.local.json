@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Skill(dataviz)",
+      "Skill(dataviz:*)",
+      "Bash(node scripts/validate_palette.js \"#f97316,#3b82f6,#ec4899,#ef4444,#8b5cf6\" --mode light)",
+      "Bash(node scripts/validate_palette.js \"#f97316,#3b82f6,#ec4899,#ef4444,#8b5cf6\" --mode dark)",
+      "Bash(node scripts/validate_palette.js \"#ea580c,#3b82f6,#ec4899,#ef4444,#8b5cf6\" --mode light)",
+      "Bash(node scripts/validate_palette.js \"#ea580c,#3b82f6,#ec4899,#ef4444,#8b5cf6\" --mode dark)"
+    ]
+  }
+}
